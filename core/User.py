@@ -228,6 +228,6 @@ class User:
         user = User.register_cls.get_user(chat_id)
         if user:
             if user.isdriver():
-                if user.isblocked():
+                if not user.isblocked():
                     return True
         return False
