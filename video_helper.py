@@ -6,6 +6,7 @@ from init import files_dir
 from core.Db import Db
 from init import log_file_video
 from core.Logger import Logger
+from video_creds import *
 
 database = Db()
 
@@ -29,12 +30,6 @@ def set_msg_id(msg_id: int):
 min_id = get_last_msg_id()
 
 
-entity = 'UklonVideoHelper'
-api_id = 7856551
-api_hash = '06a229e18c54aadfcdd6af18be38ed3e'
-phone = '+380930224576'
-
-
 async def main():
     global min_id
     client = TelegramClient(entity, api_id, api_hash)
@@ -45,7 +40,7 @@ async def main():
     await client.start()
 
     while True:
-        messages = await client.get_messages('mrplbrand_bot', min_id=min_id)
+        messages = await client.get_messages(bot_name, min_id=min_id)
         if messages:
             mess = messages[0]
             try:

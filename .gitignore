@@ -7,3 +7,4 @@ __pycache__/
 /gdrive/token
 venv/
 token.py
+video_creds.py
