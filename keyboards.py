@@ -8,10 +8,10 @@ def start_text(chat_id):
     text = ''
     user = Registry.get_user(chat_id)
     if user is None:
-        text += 'Выберите город чтобы получить возможность загрузить осмотр'
+        text += 'Оберіть місто'
 
     elif user.isdriver():
-        text += '⬇ выберите действие'
+        text += '⬇ Оберіть дію'
 
     else:
         text += '⬇ выберите действие'
@@ -25,19 +25,16 @@ def start_keyboard(chat_id):
     user = Registry.get_user(chat_id)
 
     if user is None:
-        kb.add('👉 Выбрать город')
+        kb.add('👉 Оберіть місто')
 
     elif user.isdriver():
         state_number = user.getstatenumber()
-        if state_number == '':
-            kb.add('🛠 Указать гос. номер авто')
+        kb.add('↪ Вказати інше місто')
+        if state_number == '' or state_number is None:
+            kb.add('🛠 Вказати реєстраційний номер авто')
         else:
-            kb.add('🔂 Сменить гос. номер')
-
-        kb.add('↪ сменить город')
-
-        if state_number:
-            kb.add('🆕 Загрузить осмотр')
+            kb.add('🔂 Вказати інший номер реєстрації')
+            kb.add('🆕 Завантажити огляд')
 
     elif user.isregionuser():
         kb.add('👿 Показать заблокированных водителей по городу ' + user.city.name)
@@ -56,9 +53,19 @@ def cancel_text_func():
     return "Чтобы отменить действие введите команду /cancel или нажмите на кнопку 'Отмена'"
 
 
+def cancel_text_func_ukr():
+    return "Для скасування - натисніть кнопку «Скасувати» або введіть /cancel"
+
+
 def cancel_keyboard():
     kb = types.ReplyKeyboardMarkup(row_width=1)
     kb.add('Отмена')
+    return kb
+
+
+def cancel_keyboard_ukr():
+    kb = types.ReplyKeyboardMarkup(row_width=1)
+    kb.add('Скасувати')
     return kb
 
 
@@ -67,6 +74,14 @@ def confirm_keyboard():
     kb.row('✅ Да', '🛑 Нет')
     kb.add('Отмена')
     return kb
+
+
+def confirm_keyboard_ukr():
+    kb = types.ReplyKeyboardMarkup(row_width=2)
+    kb.row('✅ Так', '🛑 Ні')
+    kb.add('Скасувати')
+    return kb
+
 
 def city_inline_keyboard(admin=False):
     kb = types.InlineKeyboardMarkup(row_width=1)
@@ -93,7 +108,6 @@ def change_city_inline_keyboard(city_id):
             kb.add(types.InlineKeyboardButton(city.name, callback_data=f'show_city_id:{city_id}'))
 
     return kb
-
 
 
 def get_blocked_drivers_kb_and_text(user):

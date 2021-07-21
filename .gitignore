@@ -2,5 +2,8 @@
 .vscode/
 __pycache__/
 /gdrive/token.json
+/gdrive/credentials.json
 /gdrive/__pycache__/
 /gdrive/token
+venv/
+token.py

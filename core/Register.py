@@ -1,5 +1,7 @@
 from core.City import City
 from core.User import User
+from core.Logger import Logger
+from init import log
 
 
 class Registry:
@@ -11,7 +13,7 @@ class Registry:
         try:
             return cls.users[str(chat_id)]
         except KeyError:
-            print('No load user with chat id ' + str(chat_id))
+            log('No load user with chat id ' + str(chat_id))
             return None
 
     @classmethod
@@ -19,7 +21,7 @@ class Registry:
         try:
             return cls.cities[int(city_id)]
         except KeyError:
-            print('No load city with id ' + str(city_id))
+            log('No load city with id ' + str(city_id))
             return None
 
     @classmethod
@@ -28,7 +30,7 @@ class Registry:
             cls.users[user.chat_id] = user
             return True
         else:
-            print('User already exists')
+            log('User already exists')
             return False
 
     @classmethod
@@ -38,7 +40,7 @@ class Registry:
             cls.cities[city_id] = city
             return True
         else:
-            print('City already exists')
+            log('City already exists')
             return False
 
     @classmethod
@@ -46,7 +48,7 @@ class Registry:
         try:
             del cls.users[str(chat_id)]
         except KeyError:
-            print('No load user with chat id ' + str(chat_id))
+            log('No load user with chat id ' + str(chat_id))
             return False
         else:
             return True
@@ -56,7 +58,7 @@ class Registry:
         try:
             del cls.cities[int(city_id)]
         except KeyError:
-            print('No load city with id ' + str(city_id))
+            log('No load city with id ' + str(city_id))
             return False
         else:
             return True

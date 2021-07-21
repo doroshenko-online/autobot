@@ -1,4 +1,6 @@
 from misc import *
+from core.Logger import Logger
+from init import log
 
 
 class City:
@@ -30,7 +32,7 @@ class City:
             self.connect.commit()
             return True
         else:
-            print('City with directory_id ' + self.dir_id + 'does not exist')
+            log('City with directory_id ' + self.dir_id + 'does not exist')
             return False
 
     def city_exists(self):
@@ -47,7 +49,7 @@ class City:
             self.connect.commit()
             return True
         else:
-            print("city with directory_id " + self.dir_id + " already exists")
+            log("city with directory_id " + self.dir_id + " already exists")
             return False
 
     def change_name(self, name):
@@ -57,7 +59,7 @@ class City:
             try:
                 self.cursor.execute(sql, val)
             except Exception as e:
-                print('Can`t update name on city ' + self.name)
+                log('Can`t update name on city ' + self.name)
                 return False
             self.connect.commit()
             self.name = name
@@ -70,7 +72,7 @@ class City:
             try:
                 self.cursor.execute(sql, val)
             except Exception as e:
-                print('Can`t update ukr_name on city ' + self.name)
+                log('Can`t update ukr_name on city ' + self.name)
                 return False
             self.connect.commit()
             self.ukr_name = ukr_name
@@ -80,7 +82,7 @@ class City:
         try:
             self.validate_dirid(dir_id)
         except AssertionError as e:
-            print(e)
+            log(e)
             return False
         sql = "update cities set directory_id=? where directory_id=?"
         val = (dir_id, self.dir_id,)
@@ -106,14 +108,14 @@ class City:
         try:
             cls.validate_dirid(dir_id)
         except AssertionError as e:
-            print(str(e) + ": " + dir_id)
+            log(str(e) + ": " + dir_id)
             return None
         sql = "select * from cities where directory_id=?"
         val = (dir_id,)
         try:
             cls.cursor.execute(sql, val)
         except Exception:
-            print('Something wrong with getting city from database')
+            log('Something wrong with getting city from database')
             return None
 
         result = cls.cursor.fetchone()

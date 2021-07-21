@@ -1,4 +1,6 @@
 import re
+from core.Logger import Logger
+from init import log
 
 
 class User:
@@ -6,7 +8,7 @@ class User:
     cursor = None
     connect = None
 
-    def __init__(self, chat_id, username, city_id=2, state_number='', blocked=False, permission_level=1):
+    def __init__(self, chat_id, username='', city_id=2, state_number='', blocked=False, permission_level=1):
         self.chat_id = str(chat_id)
         self.username = username
         self.blocked = bool(blocked)
@@ -35,7 +37,7 @@ class User:
             self.city = new_city
             return True
         else:
-            print('Can`t find city by id ' + str(new_city_id))
+            log('Can`t find city by id ' + str(new_city_id))
             return False
 
     def getstatenumber(self):
@@ -50,7 +52,7 @@ class User:
             self.permission_level = permission_level
             return True
         else:
-            print('Wrong permission level')
+            log('Wrong permission level')
             return False
 
     def change_state_number(self, new_state_number):
@@ -63,7 +65,7 @@ class User:
             self.state_number = new_state_number
             return True
         else:
-            print(new_state_number + ' not valid')
+            log(new_state_number + ' not valid')
             return False
 
     def change_block(self, blocked: bool):
@@ -94,7 +96,7 @@ class User:
             self.connect.commit()
             return True
         else:
-            print('User with chat_id ' + self.chat_id + ' already exists')
+            log('User with chat_id ' + self.chat_id + ' already exists')
             return False
 
     def isdriver(self):
@@ -133,7 +135,6 @@ class User:
         self.cursor.execute(sql, val)
         response = self.cursor.fetchall()
         return response
-
 
     def select_regional_users(self):
         """
@@ -214,7 +215,7 @@ class User:
 
     @staticmethod
     def validate_state_number(state_number: str):
-        regexp = r'(^[A-Z][A-Z]\d\d\d\d[A-Z][A-Z]$)|(^[A-Z]+$)'
+        regexp = r'(^[A-Z|А-Я][A-Z|А-Я]\d\d\d\d[A-Z|А-Я][A-Z|А-Я]$)|(^[A-ZА-Я]+$)'
         state_number = state_number.replace(' ', '').upper()
         try:
             result = re.findall(regexp, state_number)[0][0]

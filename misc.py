@@ -2,6 +2,7 @@ from init import *
 from googleapiclient.errors import HttpError
 from googleapiclient.discovery import MediaFileUpload
 from datetime import date, datetime
+from init import log
 
 
 def upload_video(file, name, folder_id, mimetype='video/mp4'):
@@ -41,17 +42,19 @@ def find_file_by_name(name):
                                 includeItemsFromAllDrives=True,
                                 supportsAllDrives=True).execute()
     except HttpError as e:
-        print(e)
+        log(e)
+        log(f'Error while find file {name}')
         return None
 
     return response['files']
 
 
-def find_file_by_id(id):
+def find_file_by_id(fid):
     try:
-        response = service.files().get(fileId=id, supportsAllDrives=True).execute()
+        response = service.files().get(fileId=fid, supportsAllDrives=True).execute()
     except HttpError as e:
-        print(e)
+        log(e)
+        log(f'Error while find file by id {str(fid)}')
         return None
 
     return response
@@ -65,7 +68,8 @@ def show_files_in_directory(dir_id):
                                 supportsAllDrives=True,
                                 fields='files(id, name)').execute()
     except HttpError as e:
-        print(e)
+        log(e)
+        log(f'Error show list files in dir {str(dir_id)}')
         return None
 
     return [file for file in response['files']]
@@ -84,10 +88,10 @@ def get_month_year():
 # def callback_permission(request_id, response, exception):
 #     if exception:
 #         # Handle error
-#         print(exception)
+#         log(exception)
 #     else:
 #         pass
-#         print("Permission Id: %s" % response.get('id'))
+#         log("Permission Id: %s" % response.get('id'))
 
 
 # def file_set_permission(file_id, domains=('uklon.com.ua', 'cleverty.com.ua', 'streamway.com.ua', 'evos.com.ua',)):

@@ -1,13 +1,17 @@
+import googleapiclient.errors
 from aiogram.types.message import Message
 from init import *
 from misc import *
 import os
+import uuid
+from pathlib import *
 from keyboards import *
 from aiogram import Bot, types
 from aiogram.dispatcher import Dispatcher, FSMContext
 from aiogram.utils import executor
 from aiogram.contrib.fsm_storage.memory import MemoryStorage
 from aiogram.dispatcher.filters import Text
+from tornado.httpclient import AsyncHTTPClient
 from core.Loader import Loader
 from core.City import City
 from core.Register import Registry
@@ -19,6 +23,9 @@ from states.StateAddRegionalAcc import AddRegionalAcc
 from states.StateUploadReview import UploadReview
 from states.StateChangeCity import ChangeCity
 from states.StateAddAdmin import AddAdmin
+import asyncio
+from core.Logger import Logger
+from token import TOKEN
 
 """
 Actions:
@@ -47,11 +54,15 @@ Actions:
 
 """
 
-TOKEN = ''
+MAX_FILE_SIZE = 150000000
+
 memory_storage = MemoryStorage()
 bot = Bot(token=TOKEN)
 dp = Dispatcher(bot, storage=memory_storage)
 loader = Loader()
+http_client = AsyncHTTPClient()
+downloads_users = []
+log = Logger.get_instance(log_file_bot).info
 
 
 # ---------------- Общие обработчики
@@ -68,8 +79,35 @@ async def get_id(msg: types.Message):
 
 
 @dp.message_handler(commands="cancel", state="*")
+async def cancel_cmm(msg: types.Message, state: FSMContext):
+    if str(msg.chat.id) in downloads_users:
+        return
+    user = Registry.get_user(msg.chat.id)
+    message = start_text(msg.chat.id)
+    keyboard = start_keyboard(msg.chat.id)
+    if user is None or user.isdriver():
+        await msg.answer("Дію скасовано", reply_markup=None)
+    else:
+        await msg.answer("Действие отменено", reply_markup=None)
+    await msg.answer(message, reply_markup=keyboard)
+    await state.finish()
+
+
+@dp.message_handler(Text(equals="Скасувати", ignore_case=True), state="*")
+async def cancel_ukr(msg: types.Message, state: FSMContext):
+    if str(msg.chat.id) in downloads_users:
+        return
+    message = start_text(msg.chat.id)
+    keyboard = start_keyboard(msg.chat.id)
+    await msg.answer("Дію скасовано", reply_markup=None)
+    await msg.answer(message, reply_markup=keyboard)
+    await state.finish()
+
+
 @dp.message_handler(Text(equals="Отмена", ignore_case=True), state="*")
 async def cancel(msg: types.Message, state: FSMContext):
+    if str(msg.chat.id) in downloads_users:
+        return
     message = start_text(msg.chat.id)
     keyboard = start_keyboard(msg.chat.id)
     await msg.answer("Действие отменено", reply_markup=None)
@@ -83,20 +121,24 @@ async def upload_review_start(msg: types.Message):
     cancel_kb = cancel_keyboard()
     cancel_text = cancel_text_func()
     if user:
+        text = ''
         if user.isdriver():
-            if user.isblocked():
-                text = 'Вам временно не разрешено загружать осмотры. Обратитесь к своему менеджеру'
-                await msg.answer(text)
-                return
-            else:
-                text = 'Загрузите видео или снимите новое'
-                await UploadReview.wait_for_video.set()
+            if user.state_number:
+                cancel_kb = cancel_keyboard_ukr()
+                cancel_text = cancel_text_func_ukr()
+                if user.isblocked():
+                    text = 'Вам тимчасово обмежено можливість завантажувати огляди. Зверніться до представництва Uklon.'
+                    await msg.answer(text)
+                    return
+                else:
+                    text = 'Завантажте відео або зніміть нове\n(розмір файлу не повинен перевищувати 150МБ\nрозмір відео-нотації не більше 20МБ)'
+                    await UploadReview.wait_for_video.set()
 
-        if user.isregionuser():
+        elif user.isregionuser():
             await UploadReview.wait_for_video_name.set()
             text = 'Введите название для видео, которое будет на гугл диске'
 
-        if user.isadmin():
+        else:
             return
 
         await msg.answer(text)
@@ -114,32 +156,50 @@ async def upload_video_processing_name(msg: types.Message, state: FSMContext):
 
 @dp.message_handler(state=UploadReview.wait_for_video, content_types=types.ContentTypes.VIDEO)
 async def upload_video_processing(msg: Message, state: FSMContext):
-    print(f'downloading video from {str(msg.chat.id)}')
-    video = await msg.video.download(files_dir)
-    mime_type = str(msg.video.mime_type)
-    await state.update_data(mime_type=mime_type)
-    video_path = video.name
-    await state.update_data(video_path=video_path)
-    await UploadReview.next()
-    text = 'Отправить осмотр?'
-    confirm_kb = confirm_keyboard()
-    await msg.answer(text, reply_markup=confirm_kb)
+    log(f'downloading video from {str(msg.chat.id)}')
+    video_size = msg.video.file_size
+    if int(video_size) <= MAX_FILE_SIZE:
+        await state.update_data(video_size=video_size)
+        await state.update_data(message=msg)
+        mime_type = str(msg.video.mime_type)
+        await state.update_data(mime_type=mime_type)
+        await UploadReview.next()
+        user = Registry.get_user(msg.chat.id)
+        if user.isdriver():
+            text = 'Завантажити огляд?'
+            confirm_kb = confirm_keyboard_ukr()
+        else:
+            text = 'Отправить осмотр?'
+            confirm_kb = confirm_keyboard()
+        await msg.answer(text, reply_markup=confirm_kb)
+    else:
+        await msg.answer('Занадто велики розмір файлу')
 
 
 @dp.message_handler(state=UploadReview.wait_for_video, content_types=types.ContentTypes.VIDEO_NOTE)
 async def upload_video_note_processing(msg: Message, state: FSMContext):
-    print(f'downloading video_note from {str(msg.chat.id)}')
-    video = await msg.video_note.download(files_dir)
-    video_path = video.name
-    await state.update_data(video_path=video_path)
-    await UploadReview.next()
-    text = 'Отправить видео?'
-    confirm_kb = confirm_keyboard()
-    await msg.answer(text, reply_markup=confirm_kb)
+    log(f'downloading video_note from {str(msg.chat.id)}')
+    video_size = msg.video_note.file_size
+    if int(video_size) <= 20000000:
+        video = await msg.video_note.download(files_dir)
+        video_path = video.name
+        await state.update_data(video_path=video_path)
+        await UploadReview.next()
+        user = Registry.get_user(msg.chat.id)
+        if user.isdriver():
+            text = 'Завантажити огляд?'
+            confirm_kb = confirm_keyboard_ukr()
+        else:
+            text = 'Отправить осмотр?'
+            confirm_kb = confirm_keyboard()
+        await msg.answer(text, reply_markup=confirm_kb)
+    else:
+        await msg.answer('Занадто велики розмір файлу')
 
 
 @dp.message_handler(state=UploadReview.wait_confirm, content_types=types.ContentTypes.TEXT)
 async def upload_video_confirm(msg: Message, state: FSMContext):
+    global downloads_users
     if str(msg.text).startswith('✅'):
         download = True
     elif str(msg.text).startswith('🛑'):
@@ -147,10 +207,53 @@ async def upload_video_confirm(msg: Message, state: FSMContext):
     else:
         return
 
+    user = Registry.get_user(msg.chat.id)
     if download:
-        user = Registry.get_user(msg.chat.id)
+        downloads_users.append(str(msg.chat.id))
         data = await state.get_data()
         mime_type = 'video/mp4'
+        if 'video_path' in data:
+            video_path = str(data['video_path'])
+        else:
+            await data['message'].forward('1859050823')
+            fname = data['video_size']
+            dots = '.'
+            dwn_msg = await msg.answer('Йде завантаження' + dots)
+            counter = 0
+            while counter < 180:
+                files = os.listdir(files_dir)
+                target_file = ''
+                for file in files:
+                    if str(fname) + '.' in file:
+                        target_file = str(file)
+                        await asyncio.sleep(3)
+                        break
+                if target_file:
+                    break
+
+                counter += 1
+                if len(dots) < 3:
+                    dots += '.'
+                else:
+                    dots = '.'
+                await dwn_msg.edit_text('Йде завантаження' + dots)
+                await asyncio.sleep(0.5)
+            else:
+                target_file = None
+
+            if target_file is None:
+                await state.finish()
+                kb = start_keyboard(msg.chat.id)
+                log(f'File {fname} is not uploaded for a 90 seconds')
+                text = 'Сталася помилка при обробці відео. Спробуйте будь-ласка знову'
+                downloads_users.remove(str(msg.chat.id))
+                await bot.send_message(msg.chat.id, text=text, reply_markup=kb)
+                return
+            else:
+                video_path = str(files_dir / target_file)
+
+            await dwn_msg.delete()
+
         if user.isregionuser():
             video_name = data['video_name']
         else:
@@ -158,41 +261,83 @@ async def upload_video_confirm(msg: Message, state: FSMContext):
 
         if 'mime_type' in data:
             mime_type = data['mime_type']
+        try_count = 2
+        i = 0
+        while i < try_count:
+            i += 1
+            try:
+                files_in_city_dir = show_files_in_directory(user.city.dir_id)
+            except BrokenPipeError as ex:
+                log(ex)
+                log('Broken pipe error while connect to google drive')
+                if i == try_count:
+                    await state.finish()
+                    kb = start_keyboard(msg.chat.id)
+                    text = 'Сталася помилка при завантаженні відео. Спробуйте будь-ласка знову'
+                    downloads_users.remove(str(msg.chat.id))
+                    await bot.send_message(msg.chat.id, text=text, reply_markup=kb)
+                    os.remove(video_path)
+                    return
+            except IOError as ex:
+                log(ex)
+                log('IO Error while connect to google drive')
+                if i == try_count:
+                    await state.finish()
+                    kb = start_keyboard(msg.chat.id)
+                    text = 'Сталася помилка при завантаженні відео. Спробуйте будь-ласка знову'
+                    downloads_users.remove(str(msg.chat.id))
+                    await bot.send_message(msg.chat.id, text=text, reply_markup=kb)
+                    os.remove(video_path)
+                    return
+            else:
+                break
 
-
-        video_path = str(data['video_path'])
-        files_in_city_dir = show_files_in_directory(user.city.dir_id)
         month_year_dir = get_month_year()
         for file in files_in_city_dir:
             if file['name'] == month_year_dir:
                 parents_upload_dir_id = file['id']
                 break
         else:
-            parents_upload_dir_id = create_folder(month_year_dir, user.city.dir_id)
+            try:
+                parents_upload_dir_id = create_folder(month_year_dir, user.city.dir_id)
+            except googleapiclient.errors.HttpError as ex:
+                log(ex)
+                log(f'Error while creating folder in parent {str(user.city.dir_id)} with name {str(month_year_dir)}')
+                await state.finish()
+                downloads_users.remove(str(msg.chat.id))
+                kb = start_keyboard(msg.chat.id)
+                await msg.answer("Помилка при завантаженні. Спробуйте будь-ласка знову", reply_markup=kb)
+                return
+            finally:
+                os.remove(video_path)
 
         files = show_files_in_directory(parents_upload_dir_id)
         video_extension = video_path.split('.')[-1]
-        i = 1
+        file_index = 1
 
-        file_exists = True
         new_video_name = video_name
 
-        while file_exists:
+        while True:
             for file in files:
                 if file['name'] == new_video_name + '.' + video_extension:
                     new_video_name = video_name + f'({str(i)})'
-                    i += 1
+                    file_index += 1
                     break
             else:
-                file_exists = False
                 break
-
-        if new_video_name != video_name:
+        try:
             file_id = upload_video(video_path, new_video_name + '.' + video_extension, parents_upload_dir_id, mime_type)
-        else:
-            file_id = upload_video(video_path, video_name + '.' + video_extension, parents_upload_dir_id, mime_type)
 
-        os.remove(video_path)
+        except googleapiclient.errors.HttpError as ex:
+            log(ex)
+            log(f'Error while file upload from {str(msg.chat.id)} with name {new_video_name}')
+            await state.finish()
+            downloads_users.remove(str(msg.chat.id))
+            kb = start_keyboard(msg.chat.id)
+            await msg.answer("Помилка при завантаженні. Спробуйте будь-ласка знову", reply_markup=kb)
+            return
+        finally:
+            os.remove(video_path)
 
         if not user.isregionuser():
             file_link = "https://drive.google.com/file/d/{0}/view".format(file_id)
@@ -209,12 +354,20 @@ async def upload_video_confirm(msg: Message, state: FSMContext):
                     await bot.send_message(user_f.chat_id, text, reply_markup=kb)
 
         await state.finish()
+        downloads_users.remove(str(msg.chat.id))
         kb = start_keyboard(msg.chat.id)
-        text = '✅✅ Осмотр отправлен ✅✅'
+        if user.isdriver():
+            text = '✅✅ Огляд відправлено ✅✅\nЧекайте підтвердження від менеджера'
+        else:
+            text = '✅✅ Осмотр отправлен ✅✅'
         await msg.answer(text, reply_markup=kb)
     else:
-        text = 'Загрузите видео или снимите новое'
-        cancel_kb = cancel_keyboard()
+        if user.isdriver():
+            text = 'Завантажте відео або зніміть нове'
+            cancel_kb = cancel_keyboard_ukr()
+        else:
+            text = 'Загрузите видео или снимите новое'
+            cancel_kb = cancel_keyboard()
         await msg.answer(text, reply_markup=cancel_kb)
         await UploadReview.previous()
 
@@ -227,9 +380,9 @@ async def upload_video_confirm(msg: Message, state: FSMContext):
 async def set_city_start(msg: types.Message, state: FSMContext):
     keyboard = city_inline_keyboard()
     await StateCity.wait_for_city.set()
-    text = 'Выберите ваш город'
-    cancel_text = cancel_text_func()
-    cancel_kb = cancel_keyboard()
+    text = 'Оберіть ваше місто'
+    cancel_text = cancel_text_func_ukr()
+    cancel_kb = cancel_keyboard_ukr()
     mes1 = await bot.send_message(msg.chat.id, text, reply_markup=keyboard)
     mes2 = await bot.send_message(msg.chat.id, cancel_text, reply_markup=cancel_kb)
     await state.update_data(msg_city=mes1.message_id)
@@ -255,8 +408,8 @@ async def processing_city(callback_query: types.CallbackQuery, state: FSMContext
 @dp.message_handler(Text(startswith="🛠", ignore_case=True), content_types=types.ContentTypes.TEXT)
 async def start_set_state_number(msg: types.Message):
     if User.validate_driver(msg.chat.id):
-        cancel_kb = cancel_keyboard()
-        text = "Введите гос. номер авто в формате AA1111BB, буквы должны быть латинскими.\nДля отмены нажмите на кнопку или введите /cancel"
+        cancel_kb = cancel_keyboard_ukr()
+        text = "Введіть реєстраційний номер авто у форматі AA1111BB.\nДля скасування - натисніть кнопку «Скасувати» або введіть /cancel"
         await StateNumber.wait_for_state_number.set()
         await msg.answer(text, reply_markup=cancel_kb)
 
@@ -265,8 +418,8 @@ async def start_set_state_number(msg: types.Message):
 @dp.message_handler(Text(startswith="🔂", ignore_case=True), content_types=types.ContentTypes.TEXT)
 async def start_set_state_number(msg: types.Message):
     if User.validate_driver(msg.chat.id):
-        cancel_kb = cancel_keyboard()
-        text = "Введите гос. номер авто в формате AA1111BB, буквы должны быть латинскими.\nДля отмены нажмите на кнопку или введите /cancel"
+        cancel_kb = cancel_keyboard_ukr()
+        text = "Введіть реєстраційний номер авто у форматі AA1111BB.\nДля скасування - натисніть кнопку «Скасувати» або введіть /cancel"
         await StateNumber.wait_for_state_number.set()
         await msg.answer(text, reply_markup=cancel_kb)
 
@@ -275,15 +428,15 @@ async def start_set_state_number(msg: types.Message):
 async def processing_state_number(msg: types.Message, state: FSMContext):
     state_number = User.validate_state_number(msg.text)
     if state_number:
-        text = start_text(msg.chat.id)
-        kb = start_keyboard(msg.chat.id)
         user = Registry.get_user(msg.chat.id)
         user.change_state_number(state_number)
+        kb = start_keyboard(msg.chat.id)
+        text = start_text(msg.chat.id)
         await msg.answer('Гос. номер изменен')
         await state.finish()
         await msg.answer(text, reply_markup=kb)
     else:
-        text = "Неверный формат гос. номера. Введите номер заново или нажмите 'Отмена'"
+        text = "Невірний формат. Введіть реєстраційний номер авто повторно або натисніть «Скасувати»"
         await msg.answer(text)
 
 
@@ -291,10 +444,10 @@ async def processing_state_number(msg: types.Message, state: FSMContext):
 @dp.message_handler(Text(startswith="↪", ignore_case=True), content_types=types.ContentTypes.TEXT)
 async def start_change_city(msg: types.Message, state: FSMContext):
     if User.validate_driver(msg.chat.id):
-        text = 'Выберите город'
+        text = 'Оберіть місто'
         keyboard = city_inline_keyboard()
-        cancel_text = cancel_text_func()
-        cancel_kb = cancel_keyboard()
+        cancel_text = cancel_text_func_ukr()
+        cancel_kb = cancel_keyboard_ukr()
         await StateCity.wait_for_change_city.set()
         mes1 = await bot.send_message(msg.chat.id, text, reply_markup=keyboard)
         mes2 = await bot.send_message(msg.chat.id, cancel_text, reply_markup=cancel_kb)
@@ -330,7 +483,9 @@ async def show_blocked_drivers(msg: types.Message):
 async def unblock_driver(callback_query: types.CallbackQuery):
     user = Registry.get_user(callback_query.message.chat.id)
     if user.isregionuser():
-        driver = Registry.get_user(str(callback_query.data).replace('block_driver:', ''))
+        driver_chat_id = str(callback_query.data).replace('block_driver:', '')
+        log(f'block user with chat id {driver_chat_id}')
+        driver = Registry.get_user(driver_chat_id)
         driver.change_block(True)
         await callback_query.message.edit_reply_markup(types.InlineKeyboardMarkup().add(types.InlineKeyboardButton('Разблокировать', callback_data=f'unblock_driver:{driver.chat_id}')))
 
@@ -339,7 +494,9 @@ async def unblock_driver(callback_query: types.CallbackQuery):
 async def unblock_driver(callback_query: types.CallbackQuery):
     user = Registry.get_user(callback_query.message.chat.id)
     if user.isregionuser():
-        driver = Registry.get_user(str(callback_query.data).replace('unblock_driver:', ''))
+        driver_chat_id = str(callback_query.data).replace('unblock_driver:', '')
+        log(f'unblock user with chat id {driver_chat_id}')
+        driver = Registry.get_user(driver_chat_id)
         driver.change_block(False)
         await callback_query.message.edit_reply_markup(types.InlineKeyboardMarkup().add(types.InlineKeyboardButton('Заблокировать', callback_data=f'block_driver:{driver.chat_id}')))
 
@@ -527,18 +684,8 @@ async def add_admin_start(msg: types.Message):
 @dp.message_handler(state=AddAdmin.wait_for_chat_id, content_types=types.ContentTypes.TEXT)
 async def add_admin_proccesing_chat_id(msg: types.Message, state: FSMContext):
     chat_id = int(str(msg.text).strip())
-    await state.update_data(chat_id=chat_id)
-    text = 'Введите username из телеграмма для нового администратора(без собаки @)'
-    await AddAdmin.next()
-    await msg.answer(text)
-
-
-@dp.message_handler(state=AddAdmin.wait_for_username, content_types=types.ContentTypes.TEXT)
-async def add_admin_proccesing_username(msg: types.Message, state: FSMContext):
-    username = str(msg.text).strip()
-    chat_id = await state.get_data()
-    chat_id = int(chat_id['chat_id'])
     user = Registry.get_user(chat_id)
+    username = str(msg.chat.username)
     if user:
         user.change_permission(3)
     else:
